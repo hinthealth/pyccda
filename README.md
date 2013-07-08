@@ -8,11 +8,9 @@ This project is under development and is not full-featured yet. However, pyccda 
 parsing CCDA XML files and converting them to structured ProtoRPC messages or simplified CSV
 documents, which can be used to pipeline the data into data analysis tools.
 
-##Requirements
-
-- `protorpc`
-
 ##Usage
+
+Before using, run `pip install -r requirements.txt` to install dependencies.
 
     import pyccda
     ccda = pyccda.CcdaDocument(<File pointer to a CCDA XML file.>)
