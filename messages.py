@@ -58,7 +58,7 @@ class Provider(messages.Message):
 
 
 class Encounter(messages.Message):
-  # TODO: implement me.
+  # TODO: Implement me.
   pass
 
 
@@ -98,13 +98,14 @@ class Prescriber(messages.Message):
 class Medication(messages.Message):
   date_range = messages.MessageField(DateRange, 1)
   product = messages.MessageField(Product, 2)
-  quantity = messages.MessageField(Quantity, 3)
-  precondition = messages.MessageField(Code, 4)
-  reason = messages.MessageField(Code, 5)
-  route = messages.MessageField(Code, 6)
-  vehicle = messages.MessageField(Code, 7)
-  administration = messages.MessageField(Code, 8)
-  prescriber = messages.MessageField(Prescriber, 9)
+  dose_quantity = messages.MessageField(Quantity, 3)
+  rate_quantity = messages.MessageField(Quantity, 4)
+  precondition = messages.MessageField(Code, 5)
+  reason = messages.MessageField(Code, 6)
+  route = messages.MessageField(Code, 7)
+  vehicle = messages.MessageField(Code, 8)
+  administration = messages.MessageField(Code, 9)
+  prescriber = messages.MessageField(Prescriber, 10)
 
 
 class Problem(messages.Message):

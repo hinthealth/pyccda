@@ -17,11 +17,14 @@ import messages
 class Root(object):
   """The "root" attribute of templateId elements."""
   ALLERGY = '2.16.840.1.113883.10.20.22.4.7'
-  MEDICATION = '2.16.840.1.113883.10.20.22.4.16'
-  IMMUNIZATION = '2.16.840.1.113883.10.20.22.2.2.1'
-  PROBLEM = '2.16.840.1.113883.10.20.22.4.4'
-  PROCEDURE = '2.16.840.1.113883.10.20.22.4.14'
   ENCOUNTER = '2.16.840.1.113883.10.20.22.4.49'
+  IMMUNIZATION = '2.16.840.1.113883.10.20.22.2.2.1'
+  IMMUNIZATION_PRODUCT = '2.16.840.1.113883.10.20.22.4.54'
+  LAB = '2.16.840.1.113883.10.20.22.2.3.1'
+  MEDICATION = '2.16.840.1.113883.10.20.22.4.16'
+  PROBLEM = '2.16.840.1.113883.10.20.22.4.4'
+  PROBLEM_STATUS = '2.16.840.1.113883.10.20.22.4.6'
+  PROCEDURE = '2.16.840.1.113883.10.20.22.2.7.1'
   VITAL = '2.16.840.1.113883.10.20.22.2.4.1'
 
 
@@ -41,6 +44,7 @@ class Field(object):
     }
 
 
+# TODO: Add more fields to the CSV.
 CSV_FIELDS = [
     Field('birthplace_city'),
     Field('birthplace_state'),
@@ -120,12 +124,45 @@ class CcdaTree(object):
         'country': _get_val(addr_node, 'country'),
     }
 
-  def get_entries_by_template(self, root):
+  def get_entries_by_template(self, root, parent=None):
+    if parent is None:
+      parent = self._doc
     nodes = [
         node.parentNode
-        for node in self._doc.getElementsByTagName('templateId')
+        for node in parent.getElementsByTagName('templateId')
         if node.getAttribute('root') == root]
     return nodes
+
+  @classmethod
+  def get_date_from_effective_time(cls, entry):
+    val = entry.getElementsByTagName('effectiveTime')[0].getAttribute('value')
+    return cls.get_date_from_value(val)
+
+  @classmethod
+  def get_date_from_value(cls, val):
+    if len(val) == len('YYYYMMDD'):
+      datetime_format = '%Y%m%d'
+    elif len(val) == len('YYYYMMDDHHMMSS'):
+      datetime_format = '%Y%m%d%H%M%S'
+    return datetime.datetime.strptime(val, datetime_format)
+
+  @classmethod
+  def get_date_range_from_node(cls, date_node):
+    low_nodes = date_node.getElementsByTagName('low')
+    low = low_nodes[0].getAttribute('value') if low_nodes else None
+    high_nodes = date_node.getElementsByTagName('high')
+    high = high_nodes[0].getAttribute('value') if high_nodes else None
+    return {
+        'start': cls.get_date_from_value(low) if low else None,
+        'end': cls.get_date_from_value(high) if high else None,
+    }
+
+  @classmethod
+  def get_quantity_message_from_node(cls, node):
+    quantity = messages.Quantity()
+    quantity.value = node.getAttribute('value')
+    quantity.unit = node.getAttribute('unit')
+    return quantity
 
 
 class CcdaDocument(object):
@@ -158,6 +195,7 @@ class CcdaDocument(object):
 
   def to_message(self):
     """Converts the CCDA document to a ProtoRPC message."""
+    # TODO: Remove duplicate code.
     doc = messages.CcdaDocument()
 
     # Allergies.
@@ -181,40 +219,109 @@ class CcdaDocument(object):
         **self._tree.get_birthplace())
 
     # Immunizations.
-    # TODO: Implement immuniations.
     doc.immunizations = []
     entries = self._tree.get_entries_by_template(Root.IMMUNIZATION)
     for entry in entries:
+      product_node = self._tree.get_entries_by_template(
+          Root.IMMUNIZATION_PRODUCT, parent=entry)[0]
       immunization = messages.Immunization()
-      doc.immunizations.append(immunization)
+      immunization.date = CcdaTree.get_date_from_effective_time(entry)
+      immunization.product = messages.Product()
+      code_node = product_node.getElementsByTagName('code')[0]
+      product_code = CcdaTree.get_code_from_node(code_node)
+      immunization.product.code = messages.Code(**product_code)
 
     # Labs.
-    # TODO: Implement labs.
     doc.labs = []
+    lab_parent = self._tree.get_entries_by_template(Root.LAB)[0]
+    entries = lab_parent.getElementsByTagName('entry')
+    for entry in entries:
+      lab = messages.Lab()
+      code_node = entry.getElementsByTagName('code')[0]
+      lab_code = CcdaTree.get_code_from_node(code_node)
+      lab.code = messages.Code(**lab_code)
+
+      lab.result = messages.LabResult()
+      component_node = entry.getElementsByTagName('component')[0]
+      result_code_node = component_node.getElementsByTagName('code')[0]
+      result_code = CcdaTree.get_code_from_node(result_code_node)
+      lab.result.code = messages.Code(**result_code)
+
+      doc.labs.append(lab)
 
     # Medications.
-    # TODO: Implement medications.
     doc.medications = []
+    entries = self._tree.get_entries_by_template(Root.MEDICATION)
+    for entry in entries:
+      medication = messages.Medication()
+      medication.product = messages.Product()
+
+      date_node = entry.getElementsByTagName('effectiveTime')[0]
+      date_range = CcdaTree.get_date_range_from_node(date_node)
+      medication.date_range = messages.DateRange(**date_range)
+
+      product_node = entry.getElementsByTagName('manufacturedProduct')[0]
+      product_code_node = product_node.getElementsByTagName('code')[0]
+      product_code = CcdaTree.get_code_from_node(product_code_node)
+      medication.product.code = messages.Code(**product_code)
+
+      quantity_nodes = entry.getElementsByTagName('doseQuantity')
+      if quantity_nodes:
+        node = quantity_nodes[0]
+        medication.dose_quantity = CcdaTree.get_quantity_message_from_node(node)
+
+      rate_nodes = entry.getElementsByTagName('rateQuantity')
+      if rate_nodes:
+        node = rate_nodes[0]
+        medication.rate_quantity = CcdaTree.get_quantity_message_from_node(node)
+
+      # TODO: precondition, reason, route, vehicle, administration, prescriber.
+      doc.medications.append(medication)
 
     # Problems.
-    # TODO: Implement problems.
     doc.problems = []
+    entries = self._tree.get_entries_by_template(Root.PROBLEM)
+    for entry in entries:
+      problem = messages.Problem()
+
+      code_node = entry.getElementsByTagName('code')[0]
+      problem_code = CcdaTree.get_code_from_node(code_node)
+      problem.code = messages.Code(**problem_code)
+
+      date_node = entry.getElementsByTagName('effectiveTime')[0]
+      date_range = CcdaTree.get_date_range_from_node(date_node)
+      problem.date_range = messages.DateRange(**date_range)
+
+      status_nodes = self._tree.get_entries_by_template(Root.PROBLEM_STATUS,
+                                                       parent=entry)
+      if status_nodes:
+        status_node = status_nodes[0]
+        entry_node = status_node.getElementsByTagName('value')[0]
+        problem.status = entry_node.getAttribute('displayName')
+
+      # TODO: Implement problem.age.
+      doc.problems.append(problem)
 
     # Procedures.
-    # TODO: Implement procedures.
     doc.procedures = []
+    procedure_parent = self._tree.get_entries_by_template(Root.PROCEDURE)[0]
+    entries = procedure_parent.getElementsByTagName('entry')
+    for entry in entries:
+      procedure = messages.Procedure()
+      code_node = entry.getElementsByTagName('code')[0]
+      procedure_code = CcdaTree.get_code_from_node(code_node)
+      procedure.code = messages.Code(**procedure_code)
+      procedure.date = CcdaTree.get_date_from_effective_time(entry)
+
+      # TODO: Implement specimen, performer, device.
+      doc.procedures.append(procedure)
 
     # Vitals.
     doc.vitals = []
     entries = self._tree.get_entries_by_template(Root.VITAL)
     for entry in entries:
       vital = messages.Vital()
-      val = entry.getElementsByTagName('effectiveTime')[0].getAttribute('value')
-      if len(val) == len('YYYYMMDD'):
-        datetime_format = '%Y%m%d'
-      elif len(val) == len('YYYYMMDDHHMMSS'):
-        datetime_format = '%Y%m%d%H%M%S'
-      vital.date = datetime.datetime.strptime(val, datetime_format)
+      vital.date = CcdaTree.get_date_from_effective_time(entry)
       vital.results = []
       result_entries = entry.getElementsByTagName('component')
       for result_entry in result_entries:
