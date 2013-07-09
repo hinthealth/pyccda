@@ -1,6 +1,6 @@
 #pyccda
 
-A Python library for CCDA XML files.
+A Python library for CCDA XML files. Part of the BlueButton+ health data liberation initiative
 
 ##Development notice
 
